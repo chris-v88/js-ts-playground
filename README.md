@@ -24,7 +24,7 @@ Option to save your code in local storage _(work in progress)_
 Simple UI with Semantic UI for buttons and dropdowns
 
 ## How to Use
-Just open the website https://chrv81.github.io/js-ts-playground/
+Just open the website https://chris-v88.github.io/js-ts-playground/
 Start writing code in the editor
 Click Run to see the output
 
