@@ -28,6 +28,15 @@ const initCodeEditor = (language = 'javascript') => {
   }
 };
 
+// Debounce utility function
+const debounce = (func, delay) => {
+  let timeoutId;
+  return (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func.apply(null, args), delay);
+  };
+};
+
 // get local storage
 const getLocalStorage = (key) => {
   const item = localStorage.getItem(key);
@@ -151,18 +160,27 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
     contextmenu: true,
   });
 
-  // content change listener for editor
-  editor.onDidChangeModelContent(() => {
-    // check if minimap should be enabled/disabled based on scrollbar presence
+  // Track previous scrollbar state to avoid unnecessary updates
+  let previousHasVerticalScrollbar = false;
+
+  // Debounced function to update minimap based on scrollbar presence
+  const updateMinimap = debounce(() => {
     const layoutInfo = editor.getLayoutInfo();
     const viewportHeight = layoutInfo.height;
     const scrollHeight = editor.getScrollHeight();
-
     const hasVerticalScrollbar = scrollHeight > viewportHeight;
-    editor.updateOptions({
-      minimap: { enabled: hasVerticalScrollbar },
-    });
-  });
+
+    // Only update if the scrollbar state has actually changed
+    if (hasVerticalScrollbar !== previousHasVerticalScrollbar) {
+      previousHasVerticalScrollbar = hasVerticalScrollbar;
+      editor.updateOptions({
+        minimap: { enabled: hasVerticalScrollbar },
+      });
+    }
+  }, 1500); // Wait 1500ms after typing stops
+
+  // content change listener for editor
+  editor.onDidChangeModelContent(updateMinimap);
 
   // Auto-save code every 3 seconds if saveCode is enabled
   setInterval(() => {
