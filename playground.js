@@ -37,7 +37,6 @@ const getLocalStorage = (key) => {
 
 // Monaco Editor configuration
 const defaultSetting = {
-  code: initCodeEditor(),
   language: 'javascript',
   theme: 'vs-dark',
   saveCode: false,
@@ -90,18 +89,23 @@ const loadSettings = () => {
       wrapTextCheckbox.checked = stored.wrapText;
     }
   }
+
+  // Load code separately from LOCAL_STORAGE_CODE
+  if (settings.saveCode) {
+    const savedCode = localStorage.getItem(LOCAL_STORAGE_CODE);
+    settings.code = savedCode || initCodeEditor(settings.language);
+  } else {
+    settings.code = initCodeEditor(settings.language);
+  }
 };
 
 /**
  * Save settings to localStorage
  */
 const saveSettings = () => {
-  const toSave = {
-    ...settings,
-  }
-  if (!settings.saveCode) {
-    delete toSave.code;
-  }
+  const toSave = { ...settings };
+  // Code is saved separately, so exclude it
+  delete toSave.code;
   localStorage.setItem(LOCAL_STORAGE_SETTINGS, JSON.stringify(toSave));
 };
 
@@ -123,10 +127,7 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
   outputEl = getEl('output-container');
 
   editor = monaco.editor.create(getEl('editor-container'), {
-    value:
-      settings.saveCode && storedSettings?.code
-        ? storedSettings?.code
-        : settings.code,
+    value: settings.code,
     language: settings.language,
     theme: settings.theme,
     automaticLayout: true,
@@ -168,8 +169,7 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
   // Auto-save code every 3 seconds if saveCode is enabled
   setInterval(() => {
     if (settings.saveCode) {
-      settings.code = editor.getValue();
-      saveSettings();
+      localStorage.setItem(LOCAL_STORAGE_CODE, editor.getValue());
     }
   }, AUTO_SAVE_INTERVAL_MS);
 });
@@ -188,8 +188,7 @@ window.addEventListener('change', (e) => {
     settings.saveSettings && saveSettings();
 
     showSettingsPopup(
-      `Language changed to <b>${
-        target.value
+      `Language changed to <b>${target.value
       }</b><br><br>Settings: <pre>${JSON.stringify(settings, null, 2)}</pre>`
     );
   }
@@ -198,25 +197,28 @@ window.addEventListener('change', (e) => {
     settings.saveSettings = target.checked;
     saveSettings();
 
+    if (!settings.saveSettings) {
+      localStorage.removeItem(LOCAL_STORAGE_SETTINGS);
+    }
+
     showSettingsPopup(
-      `Auto Save Settings is now <b>${settings.saveSettings ? 'enabled' : 'disabled'}</b>`
+      `Auto Save Settings is now <b>${settings.saveSettings ? 'enabled' : 'disabled'}</b>`,
+      settings.saveSettings ? MessageType.SUCCESS : MessageType.CAUTION
     );
   }
 
   if (target.id === 'save-code') {
     settings.saveCode = target.checked;
-    saveSettings();
-
-    if (!settings.saveCode) {
-      const stored = getLocalStorage(LOCAL_STORAGE_SETTINGS);
-      if (stored) {
-        const resetCode = { code: settings.language === 'javascript' ? INIT_JS_CODE : INIT_TS_CODE, ...stored };
-        localStorage.setItem(LOCAL_STORAGE_SETTINGS, JSON.stringify(resetCode));
-      }
+    if (settings.saveCode) {
+      localStorage.setItem(LOCAL_STORAGE_CODE, editor.getValue());
+    } else {
+      localStorage.removeItem(LOCAL_STORAGE_CODE);
     }
+    settings.saveSettings && saveSettings();
 
     showSettingsPopup(
-      `Auto Save is now <b>${settings.saveCode ? 'enabled' : 'disabled'}</b>`
+      `Auto Save is now <b>${settings.saveCode ? 'enabled' : 'disabled'}</b>`,
+      settings.saveCode ? MessageType.SUCCESS : MessageType.CAUTION
     );
   }
 
@@ -224,9 +226,8 @@ window.addEventListener('change', (e) => {
     const themeValue = target.checked ? 'vs' : 'vs-dark';
     settings.theme = themeValue;
     monacoLibrary.editor.setTheme(themeValue);
-    settings.saveCode && saveSettings();
+    settings.saveSettings && saveSettings();
 
-    // Show popup debug for dev
     showSettingsPopup(`Theme changed to <b>${themeValue}</b>`);
 
     applyThemeToContainers(target.checked);
@@ -237,17 +238,17 @@ window.addEventListener('change', (e) => {
     editor.updateOptions({
       wordWrap: settings.wrapText ? 'on' : 'off',
     });
-    settings.saveCode && saveSettings();
+    settings.saveSettings && saveSettings();
 
-    // Show popup debug for dev
     showSettingsPopup(
-      `Wrap Text is now <b>${settings.wrapText ? 'enabled' : 'disabled'}</b>`
+      `Wrap Text is now <b>${settings.wrapText ? 'enabled' : 'disabled'}</b>`,
+      settings.wrapText ? MessageType.SUCCESS : MessageType.CAUTION
     );
   }
 });
 
 /**
- * Quick Pop-up for dev debug
+ * Quick Pop-up
  */
 const MessageType = {
   SUCCESS: 'positive',
@@ -265,8 +266,8 @@ const IconMappingMessageType = {
 
 const showSettingsPopup = (
   message,
+  messageType = MessageType.INFO,
   sec = 5000,
-  messageType = MessageType.INFO
 ) => {
   const popup = document.getElementById('settings-popup');
 
@@ -388,7 +389,7 @@ const compilerLanguage = {
 const downloadCode = () => {
   showSettingsPopup(
     'Sorry, download feature is not implemented yet.',
+    MessageType.WARNING,
     2500,
-    MessageType.WARNING
   );
 };
