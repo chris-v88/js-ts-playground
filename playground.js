@@ -5,7 +5,7 @@ let editor, monacoLibrary, eslintInstance;
 
 // constants
 const AUTO_RUN_TIME = 30000;
-const AUTO_SAVE_INTERVAL_MS = 1500;
+const AUTO_SAVE_INTERVAL_MS = 3000;
 const INIT_JS_CODE = `// Start coding!\nconst greeting = (name) => console.log('Hello ' + name + '!');\ngreeting('World');`;
 const INIT_TS_CODE = `// Start coding!\nconst greeting: (name: string) => void = (name) => console.log('Hello ' + name + '!');\ngreeting('World');`;
 
@@ -93,6 +93,7 @@ window.require.config({
   },
 });
 
+// Monaco editor set up
 window.require(['vs/editor/editor.main'], async (monaco) => {
   monacoLibrary = monaco;
 
@@ -133,7 +134,20 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
     contextmenu: true,
   });
 
-  // Auto-save code every 1.5 seconds if saveCode is enabled
+  // content change listener for editor
+  editor.onDidChangeModelContent(() => {
+    // check if minimap should be enabled/disabled based on scrollbar presence
+    const layoutInfo = editor.getLayoutInfo();
+    const viewportHeight = layoutInfo.height;
+    const scrollHeight = editor.getScrollHeight();
+
+    const hasVerticalScrollbar = scrollHeight > viewportHeight;
+    editor.updateOptions({
+      minimap: { enabled: hasVerticalScrollbar },
+    });
+  });
+
+  // Auto-save code every 3 seconds if saveCode is enabled
   setInterval(() => {
     if (settings.autoSave) {
       settings.code = editor.getValue();
