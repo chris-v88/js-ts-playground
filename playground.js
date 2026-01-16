@@ -4,7 +4,6 @@
 let editor, monacoLibrary, eslintInstance;
 
 // constants
-const AUTO_RUN_TIME = 30000;
 const AUTO_SAVE_INTERVAL_MS = 3000;
 const INIT_JS_CODE = `// Start coding!\nconst greeting = (name) => console.log('Hello ' + name + '!');\ngreeting('World');`;
 const INIT_TS_CODE = `// Start coding!\nconst greeting: (name: string) => void = (name) => console.log('Hello ' + name + '!');\ngreeting('World');`;
@@ -14,8 +13,8 @@ const LOCAL_STORAGE_SETTINGS = 'PLAYGROUND__settings';
 const LOCAL_STORAGE_CODE = 'PLAYGROUND__code';
 
 // cookie
-const PLAYGRROUND_DEV = 'PLAYGROUND__dev_debug';
-const isDevDebug = document.cookie.includes(`${PLAYGRROUND_DEV}=true`);
+const PLAYGROUND_DEV = 'PLAYGROUND__dev_debug';
+const isDevDebug = document.cookie.includes(`${PLAYGROUND_DEV}=true`);
 
 // functions to handle editor operations
 const initCodeEditor = (language = 'javascript') => {
@@ -33,7 +32,7 @@ const initCodeEditor = (language = 'javascript') => {
 const getLocalStorage = (key) => {
   const item = localStorage.getItem(key);
   return item ? JSON.parse(item) : null;
-}
+};
 
 // Monaco Editor configuration
 const defaultSetting = {
@@ -121,7 +120,6 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
   monacoLibrary = monaco;
 
   // Parse localStorage once and reuse
-  const storedSettings = getLocalStorage(LOCAL_STORAGE_SETTINGS);
   loadSettings();
 
   outputEl = getEl('output-container');
@@ -188,8 +186,7 @@ window.addEventListener('change', (e) => {
     settings.saveSettings && saveSettings();
 
     showSettingsPopup(
-      `Language changed to <b>${target.value
-      }</b><br><br>Settings: <pre>${JSON.stringify(settings, null, 2)}</pre>`
+      `Language changed to <b>${target.value}</b>`
     );
   }
 
@@ -202,7 +199,9 @@ window.addEventListener('change', (e) => {
     }
 
     showSettingsPopup(
-      `Auto Save Settings is now <b>${settings.saveSettings ? 'enabled' : 'disabled'}</b>`,
+      `Auto Save Settings is now <b>${settings.saveSettings ? 'enabled' : 'disabled'}</b>
+      ${settings.saveSettings ? `<br />Settings: <pre>${JSON.stringify(settings, null, 2)}</pre>` : '<br />All settings have been cleared from local storage.'}
+      `,
       settings.saveSettings ? MessageType.SUCCESS : MessageType.CAUTION
     );
   }
