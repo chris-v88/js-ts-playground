@@ -4,17 +4,17 @@
 let editor, monacoLibrary, eslintInstance;
 
 // constants
-const AUTO_RUN_TIME = 30000;
-const AUTO_SAVE_INTERVAL_MS = 1500;
+const AUTO_SAVE_INTERVAL_MS = 3000;
 const INIT_JS_CODE = `// Start coding!\nconst greeting = (name) => console.log('Hello ' + name + '!');\ngreeting('World');`;
 const INIT_TS_CODE = `// Start coding!\nconst greeting: (name: string) => void = (name) => console.log('Hello ' + name + '!');\ngreeting('World');`;
 
 // local storage keys
 const LOCAL_STORAGE_SETTINGS = 'PLAYGROUND__settings';
+const LOCAL_STORAGE_CODE = 'PLAYGROUND__code';
 
 // cookie
-const PLAGROROUND_DEV = 'PLAYGROUND__dev_debug';
-const isDevDebug = document.cookie.includes(`${PLAGROROUND_DEV}=true`);
+const PLAYGROUND_DEV = 'PLAYGROUND__dev_debug';
+const isDevDebug = document.cookie.includes(`${PLAYGROUND_DEV}=true`);
 
 // functions to handle editor operations
 const initCodeEditor = (language = 'javascript') => {
@@ -28,15 +28,29 @@ const initCodeEditor = (language = 'javascript') => {
   }
 };
 
-// Monaco Editor configuration
-const defaultSetting = {
-  code: initCodeEditor(),
-  language: 'javascript',
-  theme: 'vs-dark',
-  autoSave: false,
-  autoRun: false,
+// Debounce utility function
+const debounce = (func, delay) => {
+  let timeoutId;
+  return (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func.apply(null, args), delay);
+  };
 };
 
+// get local storage
+const getLocalStorage = (key) => {
+  const item = localStorage.getItem(key);
+  return item ? JSON.parse(item) : null;
+};
+
+// Monaco Editor configuration
+const defaultSetting = {
+  language: 'javascript',
+  theme: 'vs-dark',
+  saveCode: false,
+  saveSettings: false,
+  wrapText: false,
+};
 let settings = { ...defaultSetting };
 
 // utilities
@@ -48,7 +62,7 @@ let outputEl;
  * If settings are not found, use default settings
  */
 const loadSettings = () => {
-  const stored = JSON.parse(localStorage.getItem(LOCAL_STORAGE_SETTINGS));
+  const stored = getLocalStorage(LOCAL_STORAGE_SETTINGS);
   if (stored) {
     settings = { ...settings, ...stored };
 
@@ -65,17 +79,31 @@ const loadSettings = () => {
       themeToggle.checked = stored.theme === 'vs';
     }
 
-    // Update autoSave checkbox
+    // Update saveCode checkbox
     const saveCodeCheckbox = getEl('save-code');
-    if (saveCodeCheckbox && typeof stored.autoSave === 'boolean') {
-      saveCodeCheckbox.checked = stored.autoSave;
+    if (saveCodeCheckbox && typeof stored.saveCode === 'boolean') {
+      saveCodeCheckbox.checked = stored.saveCode;
     }
 
-    // Update autoRun checkbox
-    const autoRunCheckbox = getEl('auto-run');
-    if (autoRunCheckbox && typeof stored.autoRun === 'boolean') {
-      autoRunCheckbox.checked = stored.autoRun;
+    // Update saveSettings checkbox
+    const saveSettingsCheckbox = getEl('save-settings');
+    if (saveSettingsCheckbox && typeof stored.saveSettings === 'boolean') {
+      saveSettingsCheckbox.checked = stored.saveSettings;
     }
+
+    // Update wrapText checkbox
+    const wrapTextCheckbox = getEl('wrap-text');
+    if (wrapTextCheckbox && typeof stored.wrapText === 'boolean') {
+      wrapTextCheckbox.checked = stored.wrapText;
+    }
+  }
+
+  // Load code separately from LOCAL_STORAGE_CODE
+  if (settings.saveCode) {
+    const savedCode = localStorage.getItem(LOCAL_STORAGE_CODE);
+    settings.code = savedCode || initCodeEditor(settings.language);
+  } else {
+    settings.code = initCodeEditor(settings.language);
   }
 };
 
@@ -83,7 +111,10 @@ const loadSettings = () => {
  * Save settings to localStorage
  */
 const saveSettings = () => {
-  localStorage.setItem(LOCAL_STORAGE_SETTINGS, JSON.stringify(settings));
+  const toSave = { ...settings };
+  // Code is saved separately, so exclude it
+  delete toSave.code;
+  localStorage.setItem(LOCAL_STORAGE_SETTINGS, JSON.stringify(toSave));
 };
 
 // Initialize Monaco
@@ -93,22 +124,17 @@ window.require.config({
   },
 });
 
+// Monaco editor set up
 window.require(['vs/editor/editor.main'], async (monaco) => {
   monacoLibrary = monaco;
 
   // Parse localStorage once and reuse
-  const storedSettings = JSON.parse(
-    localStorage.getItem(LOCAL_STORAGE_SETTINGS)
-  );
   loadSettings();
 
   outputEl = getEl('output-container');
 
   editor = monaco.editor.create(getEl('editor-container'), {
-    value:
-      settings.autoSave && storedSettings?.code
-        ? storedSettings?.code
-        : settings.code,
+    value: settings.code,
     language: settings.language,
     theme: settings.theme,
     automaticLayout: true,
@@ -116,6 +142,7 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
     minimap: {
       enabled: false,
     },
+    wordWrap: settings.wrapText ? 'on' : 'off',
     tabSize: 2,
     insertSpaces: true,
     autoIndent: 'advanced',
@@ -133,11 +160,32 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
     contextmenu: true,
   });
 
-  // Auto-save code every 1.5 seconds if saveCode is enabled
+  // Track previous scrollbar state to avoid unnecessary updates
+  let previousHasVerticalScrollbar = false;
+
+  // Debounced function to update minimap based on scrollbar presence
+  const updateMinimap = debounce(() => {
+    const layoutInfo = editor.getLayoutInfo();
+    const viewportHeight = layoutInfo.height;
+    const scrollHeight = editor.getScrollHeight();
+    const hasVerticalScrollbar = scrollHeight > viewportHeight;
+
+    // Only update if the scrollbar state has actually changed
+    if (hasVerticalScrollbar !== previousHasVerticalScrollbar) {
+      previousHasVerticalScrollbar = hasVerticalScrollbar;
+      editor.updateOptions({
+        minimap: { enabled: hasVerticalScrollbar },
+      });
+    }
+  }, 1500); // Wait 1500ms after typing stops
+
+  // content change listener for editor
+  editor.onDidChangeModelContent(updateMinimap);
+
+  // Auto-save code every 3 seconds if saveCode is enabled
   setInterval(() => {
-    if (settings.autoSave) {
-      settings.code = editor.getValue();
-      saveSettings();
+    if (settings.saveCode) {
+      localStorage.setItem(LOCAL_STORAGE_CODE, editor.getValue());
     }
   }, AUTO_SAVE_INTERVAL_MS);
 });
@@ -147,59 +195,77 @@ window.require(['vs/editor/editor.main'], async (monaco) => {
  */
 window.addEventListener('change', (e) => {
   const target = e.target;
+
   if (target.id === 'language-selector') {
     settings.language = target.value;
     monacoLibrary.editor.setModelLanguage(editor.getModel(), target.value);
 
-    // Only save settings if autoRun is enabled
-    settings.autoSave && saveSettings();
+    // Only save settings if saveSettings is enabled
+    settings.saveSettings && saveSettings();
 
-    // Show popup debug for dev
-    isDevDebug &&
-      showSettingsPopup(
-        `Language changed to <b>${
-          target.value
-        }</b><br><br>Settings: <pre>${JSON.stringify(settings, null, 2)}</pre>`
-      );
+    showSettingsPopup(
+      `Language changed to <b>${target.value}</b>`
+    );
+  }
+
+  if (target.id === 'save-settings') {
+    settings.saveSettings = target.checked;
+    saveSettings();
+
+    if (!settings.saveSettings) {
+      localStorage.removeItem(LOCAL_STORAGE_SETTINGS);
+    }
+
+    showSettingsPopup(
+      `Auto Save Settings is now <b>${settings.saveSettings ? 'enabled' : 'disabled'}</b>
+      ${settings.saveSettings ? `<br />Settings: <pre>${JSON.stringify(settings, null, 2)}</pre>` : '<br />All settings have been cleared from local storage.'}
+      `,
+      settings.saveSettings ? MessageType.SUCCESS : MessageType.CAUTION
+    );
   }
 
   if (target.id === 'save-code') {
-    settings.autoSave = target.checked;
-    saveSettings();
+    settings.saveCode = target.checked;
+    if (settings.saveCode) {
+      localStorage.setItem(LOCAL_STORAGE_CODE, editor.getValue());
+    } else {
+      localStorage.removeItem(LOCAL_STORAGE_CODE);
+    }
+    settings.saveSettings && saveSettings();
 
-    // Show popup debug for dev
-    isDevDebug &&
-      showSettingsPopup(
-        `Auto Save is now <b>${settings.autoSave ? 'enabled' : 'disabled'}</b>`
-      );
-  }
-
-  if (target.id === 'auto-run') {
-    settings.autoRun = target.checked;
-    saveSettings();
-
-    // Show popup debug for dev
-    isDevDebug &&
-      showSettingsPopup(
-        `Auto Run is now <b>${settings.autoRun ? 'enabled' : 'disabled'}</b>`
-      );
+    showSettingsPopup(
+      `Auto Save is now <b>${settings.saveCode ? 'enabled' : 'disabled'}</b>`,
+      settings.saveCode ? MessageType.SUCCESS : MessageType.CAUTION
+    );
   }
 
   if (target.id === 'theme-toggle') {
     const themeValue = target.checked ? 'vs' : 'vs-dark';
     settings.theme = themeValue;
     monacoLibrary.editor.setTheme(themeValue);
-    saveSettings();
+    settings.saveSettings && saveSettings();
 
-    // Show popup debug for dev
-    isDevDebug && showSettingsPopup(`Theme changed to <b>${themeValue}</b>`);
+    showSettingsPopup(`Theme changed to <b>${themeValue}</b>`);
 
     applyThemeToContainers(target.checked);
+  }
+
+  if (target.id === 'wrap-text') {
+    settings.wrapText = target.checked;
+    editor.updateOptions({
+      wordWrap: settings.wrapText ? 'on' : 'off',
+    });
+    settings.saveSettings && saveSettings();
+
+    showSettingsPopup(
+      `Wrap Text is now <b>${settings.wrapText ? 'enabled' : 'disabled'}</b>`,
+      settings.wrapText ? MessageType.SUCCESS : MessageType.CAUTION
+    );
   }
 });
 
 /**
- * Quick Pop-up for dev debug
+ * Quick Pop-up
  */
 const MessageType = {
   SUCCESS: 'positive',
@@ -217,8 +283,8 @@ const IconMappingMessageType = {
 
 const showSettingsPopup = (
   message,
+  messageType = MessageType.INFO,
   sec = 5000,
-  messageType = MessageType.INFO
 ) => {
   const popup = document.getElementById('settings-popup');
 
@@ -340,7 +406,7 @@ const compilerLanguage = {
 const downloadCode = () => {
   showSettingsPopup(
     'Sorry, download feature is not implemented yet.',
+    MessageType.WARNING,
     2500,
-    MessageType.WARNING
   );
 };
